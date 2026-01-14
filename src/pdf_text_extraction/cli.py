@@ -64,6 +64,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override system prompt.",
     )
     parser.add_argument(
+        "--llm-validate",
+        action="store_true",
+        help="Enable LLM validation of extracted JSON.",
+    )
+    parser.add_argument(
+        "--llm-validation-prompt-file",
+        type=Path,
+        default=None,
+        help="Validation prompt template file (use {document_text} and {extracted_json}).",
+    )
+    parser.add_argument(
+        "--llm-validation-system-prompt",
+        type=str,
+        default=None,
+        help="Override validation system prompt.",
+    )
+    parser.add_argument(
         "--llm-output-dir",
         type=Path,
         default=None,
@@ -81,6 +98,9 @@ def main() -> None:
     llm_prompt_template = None
     if args.llm_prompt_file:
         llm_prompt_template = args.llm_prompt_file.read_text(encoding="utf-8")
+    llm_validation_prompt_template = None
+    if args.llm_validation_prompt_file:
+        llm_validation_prompt_template = args.llm_validation_prompt_file.read_text(encoding="utf-8")
 
     config = ExtractionConfig(
         enable_ocr=not args.no_ocr,
@@ -95,6 +115,13 @@ def main() -> None:
         llm_api_key=args.llm_api_key,
         llm_system_prompt=args.llm_system_prompt or ExtractionConfig.llm_system_prompt,
         llm_prompt_template=llm_prompt_template or ExtractionConfig.llm_prompt_template,
+        llm_validation_enabled=args.llm_validate,
+        llm_validation_system_prompt=(
+            args.llm_validation_system_prompt or ExtractionConfig.llm_validation_system_prompt
+        ),
+        llm_validation_prompt_template=(
+            llm_validation_prompt_template or ExtractionConfig.llm_validation_prompt_template
+        ),
     )
 
     process_path(

@@ -27,6 +27,12 @@ pip install -e ".[ocr]"
 pip install -e ".[llm]"
 ```
 
+### Set API key
+Set the OpenAI-compatible API key in your environment:
+```
+export OPENAI_API_KEY="your_api_key_here"
+```
+
 ### CLI usage
 ```
 pdf-text-extract /path/to/file_or_dir --output-dir /path/to/text
@@ -40,6 +46,9 @@ Optional flags:
 - `--llm` enables LLM JSON extraction.
 - `--llm-output-dir` sets a directory for JSON outputs.
 - `--llm-prompt-file` points to a template with `{document_text}`.
+- `--llm-validate` enables LLM validation of extracted JSON.
+- `--llm-validation-prompt-file` points to a template with `{document_text}` and `{extracted_json}`.
+- `--llm-validation-system-prompt` overrides the validation system prompt.
 
 ### Programmatic usage
 ```

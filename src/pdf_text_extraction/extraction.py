@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import json
 import logging
 import os
 import shutil
@@ -53,6 +54,16 @@ class ExtractionConfig:
         "Return only valid JSON."
     )
     llm_prompt_template: str = "Extract key fields from the document:\n\n{document_text}"
+    llm_validation_enabled: bool = False
+    llm_validation_system_prompt: str = (
+        "You verify whether extracted JSON matches the document. "
+        "Return only valid JSON."
+    )
+    llm_validation_prompt_template: str = (
+        "Evaluate the extracted JSON against the document text.\n"
+        "Return JSON with keys: valid (boolean), issues (array of strings).\n\n"
+        "Document:\n{document_text}\n\nExtracted JSON:\n{extracted_json}"
+    )
 
 
 def _ocr_dependencies_available() -> bool:
@@ -315,8 +326,34 @@ def process_path(
                 json_output_path = llm_output_dir / f"{pdf_file.stem}.json"
                 llm_json = extract_json_with_llm(text, config)
                 if llm_json:
-                    save_text_to_file(llm_json, json_output_path)
-                    logger.info("Saved LLM JSON output to %s", json_output_path)
+                    validation_result = None
+                    if config.llm_validation_enabled:
+                        validation_result = validate_llm_output(text, llm_json, config)
+                        if validation_result is None:
+                            logger.warning("LLM validation failed for %s", pdf_file.name)
+                        else:
+                            validation_output_path = (
+                                llm_output_dir / f"{pdf_file.stem}.validation.json"
+                            )
+                            save_text_to_file(
+                                json.dumps(validation_result, indent=2, sort_keys=True),
+                                validation_output_path,
+                            )
+                            if not validation_result.get("valid", False):
+                                invalid_output_path = (
+                                    llm_output_dir / f"{pdf_file.stem}.invalid.json"
+                                )
+                                save_text_to_file(llm_json, invalid_output_path)
+                                logger.warning(
+                                    "LLM validation failed for %s. "
+                                    "Saved invalid output to %s",
+                                    pdf_file.name,
+                                    invalid_output_path,
+                                )
+                                llm_json = None
+                    if llm_json:
+                        save_text_to_file(llm_json, json_output_path)
+                        logger.info("Saved LLM JSON output to %s", json_output_path)
                 else:
                     logger.warning("LLM extraction failed for %s", pdf_file.name)
             if move_processed:
@@ -339,7 +376,7 @@ def extract_json_with_llm(text_content: str, config: ExtractionConfig) -> Option
         return None
 
     try:
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(api_key=api_key, base_url="https://api.cborg.lbl.gov")
         prompt = config.llm_prompt_template.format(document_text=text_content)
         response = client.chat.completions.create(
             model=config.llm_model,
@@ -356,4 +393,48 @@ def extract_json_with_llm(text_content: str, config: ExtractionConfig) -> Option
         return None
     except Exception as exc:
         logger.error("LLM extraction failed: %s", exc)
+        return None
+
+
+def validate_llm_output(
+    text_content: str, extracted_json: str, config: ExtractionConfig
+) -> Optional[dict]:
+    if not config.llm_validation_enabled:
+        logger.info("LLM validation disabled. Skipping.")
+        return None
+    if not OpenAI:
+        logger.error("OpenAI package not installed. Install with extras: pip install -e '.[llm]'.")
+        return None
+
+    api_key = config.llm_api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        logger.error("OPENAI_API_KEY not set and llm_api_key not provided.")
+        return None
+
+    try:
+        client = OpenAI(api_key=api_key, base_url="https://api.cborg.lbl.gov")
+        prompt = config.llm_validation_prompt_template.format(
+            document_text=text_content,
+            extracted_json=extracted_json,
+        )
+        response = client.chat.completions.create(
+            model=config.llm_model,
+            messages=[
+                {"role": "system", "content": config.llm_validation_system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"},
+            timeout=config.llm_timeout,
+        )
+        if response and response.choices:
+            raw = response.choices[0].message.content.strip()
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                parsed.setdefault("valid", False)
+                parsed.setdefault("issues", [])
+                return parsed
+        return None
+    except Exception as exc:
+        logger.error("LLM validation failed: %s", exc)
         return None
