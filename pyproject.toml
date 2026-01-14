@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdf-text-extraction"
+version = "0.1.0"
+description = "Generic PDF processing and text extraction with OCR fallback"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name = "Your Name"}]
+dependencies = [
+    "PyPDF2>=3.0.0",
+]
+
+[project.optional-dependencies]
+ocr = [
+    "pdf2image>=1.17.0",
+    "pytesseract>=0.3.10",
+    "Pillow>=10.0.0",
+]
+llm = [
+    "openai>=1.40.0",
+]
+
+[project.scripts]
+pdf-text-extract = "pdf_text_extraction.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
